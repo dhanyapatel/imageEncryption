@@ -58,7 +58,7 @@ def decrypt_image_rbf(input_path, output_path, keyfile="keys_rbf.txt"):
 if __name__ == "__main__":
     encrypted_images = glob.glob("*.png")
     if not encrypted_images:
-        print("❌ No encrypted image found!")
+        print("No encrypted image found!")
     else:
         latest = max(encrypted_images, key=os.path.getmtime)
         print("🖼 Using latest image:", latest)
