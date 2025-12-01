@@ -1,9 +1,3 @@
-# analysis_rbf.py
-# --------------------------------------------------------
-# Performs:
-# 1. Histogram analysis for original, encrypted, decrypted
-# 2. PSNR between original ↔ encrypted, original ↔ decrypted
-
 from PIL import Image
 import numpy as np
 import matplotlib.pyplot as plt
@@ -26,7 +20,6 @@ def compute_psnr(img1, img2):
     psnr = 20 * np.log10(PIXEL_MAX / np.sqrt(mse))
     return psnr
 
-# ---------- Histogram plotting ----------
 def plot_histogram(img, title):
     """Plot histogram of a grayscale image."""
     flat = img.flatten()
@@ -35,7 +28,6 @@ def plot_histogram(img, title):
     plt.xlabel("Pixel Intensity (0–255)")
     plt.ylabel("Frequency")
 
-# ---------- Full analysis ----------
 def run_full_analysis(original_path, encrypted_path, decrypted_path):
     # Load images
     orig = load_grayscale(original_path)
@@ -46,7 +38,7 @@ def run_full_analysis(original_path, encrypted_path, decrypted_path):
     psnr_orig_enc = compute_psnr(orig, enc)
     psnr_orig_dec = compute_psnr(orig, dec)
 
-    print("📊 PSNR Results")
+    print(" PSNR Results")
     print(f"  PSNR (Original vs Encrypted): {psnr_orig_enc:.4f} dB")
     print(f"  PSNR (Original vs Decrypted): {psnr_orig_dec:.4f} dB")
 
@@ -65,8 +57,7 @@ def run_full_analysis(original_path, encrypted_path, decrypted_path):
     plt.tight_layout()
     plt.show()
 
-# ---------- Run directly ----------
-# ---------- Run directly ----------
+
 if __name__ == "__main__":
     # Ask only for ORIGINAL image path
     original_path = input("Enter path of ORIGINAL image: ").strip()

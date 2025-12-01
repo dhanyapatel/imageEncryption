@@ -10,7 +10,7 @@ def decrypt_image_rbf(input_path, output_path, keyfile="keys_rbf.json"):
 
     # Read keys that were saved by encryption
     rounds, round_keys, final_keys = KeyUtils.read_keys(keyfile)
-    print(f"🔑 Loaded {rounds} round-keys from {keyfile}")
+    print(f" Loaded {rounds} round-keys from {keyfile}")
 
     # Phase 1: bitplane decomposition
     planes = decompose_bitplanes(img)
@@ -51,7 +51,7 @@ def decrypt_image_rbf(input_path, output_path, keyfile="keys_rbf.json"):
 
     decrypted = Image.fromarray(arr)
     decrypted.save(output_path)
-    print("✅ Decrypted saved as:", output_path)
+    print(" Decrypted saved as:", output_path)
     return output_path
 
 if __name__ == "__main__":

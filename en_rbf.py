@@ -107,11 +107,11 @@ def encrypt_image_rbf(input_path, output_path, keyfile="keys_rbf.json", rounds=3
     # Reconstruct and save
     encrypted = recompose_bitplanes(planes)
     encrypted.save(output_path)
-    print("✅ Encrypted saved as:", output_path)
+    print(" Encrypted saved as:", output_path)
 
     # Save keys (all round keys + final keys) so decryption is exact
     KeyUtils.write_keys(keyfile, round_keys, final_keys)
-    print("🔑 Keys saved to:", keyfile)
+    print(" Keys saved to:", keyfile)
 
 if __name__ == "__main__":
     img_path = input("Enter image path to encrypt: ").strip()
