@@ -1,21 +1,14 @@
 # en_rbf.py
-# --------------------------------------------------------
-# Implements full encryption:
-# 1. Rubik's cube scrambling
-# 2. Bitplane decomposition
-# 3. Frame rotation + shuffling
-# 4. Reconstruction
-
 from PIL import Image
 import numpy as np
 import KeyUtils
 
-# ---------- Helper Functions ----------
+# ---------- Helpers ----------
 def decompose_bitplanes(img):
-    """Split RGB image into 24 bitplanes (8 per channel)."""
+    """Split RGB image into 24 bitplanes (8 per channel). Order: R(0..7), G(0..7), B(0..7)."""
     arr = np.array(img)
     planes = []
-    for c in range(3):  # R, G, B
+    for c in range(3):  # 0=R,1=G,2=B
         channel = arr[:, :, c]
         for bit in range(8):
             plane = ((channel >> bit) & 1).astype(np.uint8)
@@ -23,7 +16,7 @@ def decompose_bitplanes(img):
     return planes
 
 def recompose_bitplanes(planes):
-    """Rebuild RGB image from 24 bitplanes."""
+    """Rebuild RGB image from 24 bitplanes (same order as decompose)."""
     h, w = planes[0].shape
     arr = np.zeros((h, w, 3), dtype=np.uint8)
     for c in range(3):
@@ -34,68 +27,92 @@ def recompose_bitplanes(planes):
     return Image.fromarray(arr)
 
 def rotate_frame(plane, steps):
-    """Rotate outer frame clockwise by given steps."""
+    """Rotate outer 1-pixel border by steps (positive = clockwise)."""
     mat = plane.copy()
     h, w = mat.shape
-    for _ in range(steps):
-        # Take border pixels
-        top = mat[0, :].copy()
-        right = mat[:, -1].copy()
-        bottom = mat[-1, :].copy()
-        left = mat[:, 0].copy()
-        # Rotate clockwise
-        mat[0, 1:] = top[:-1]
-        mat[1:, -1] = right[:-1]
-        mat[-1, :-1] = bottom[1:]
-        mat[:-1, 0] = left[1:]
+    if h < 2 or w < 2:
+        return mat
+    total = 2 * (h + w) - 4
+    steps = int(steps) % total
+
+    # Extract border in order: top (left→right), right (top+1→bottom-1), bottom (right→left), left (bottom-1→top+1)
+    top = mat[0, :].astype(np.uint8)
+    right = mat[1:h-1, -1].astype(np.uint8) if h > 2 else np.array([], dtype=np.uint8)
+    bottom = mat[-1, ::-1].astype(np.uint8)
+    left = mat[h-2:0:-1, 0].astype(np.uint8) if h > 2 else np.array([], dtype=np.uint8)
+
+    border = np.concatenate([top, right, bottom, left])
+    border = np.roll(border, steps)
+
+    idx = 0
+    mat[0, :] = border[idx: idx + w]; idx += w
+    if h > 2:
+        mat[1:h-1, -1] = border[idx: idx + (h - 2)]; idx += (h - 2)
+    mat[-1, :] = border[idx: idx + w][::-1]; idx += w
+    if h > 2:
+        mat[h-2:0:-1, 0] = border[idx: idx + (h - 2)]
     return mat
 
 # ---------- Main Encryption ----------
-def encrypt_image_rbf(input_path, output_path, keyfile="keys_rbf.txt"):
-    # Load input image
+def encrypt_image_rbf(input_path, output_path, keyfile="keys_rbf.json", rounds=3):
     img = Image.open(input_path).convert("RGB")
-
-    # Generate and save keys
-    K1 = KeyUtils.generate_key()
-    K2 = KeyUtils.generate_key()
-    rounds = 3  # 3 rounds of scrambling (block sizes 16, 32, 64)
-    KeyUtils.write_keys(keyfile, K1, K2, rounds)
-    print("✅ Keys saved to", keyfile)
-
-    # Phase 1: (Simplified) Rubik-like scrambling (row/col rotations)
     arr = np.array(img)
     h, w, _ = arr.shape
-    for _ in range(rounds):
+
+    # Generate initial keys
+    K1 = KeyUtils.generate_key()
+    K2 = KeyUtils.generate_key()
+
+    # Apply rounds; store the keys used in each round (before update)
+    round_keys = []
+    K1_cur, K2_cur = K1, K2
+    for r in range(rounds):
+        # Row rotations (horizontal)
         for i in range(h):
-            shift = int(K1[i % len(K1)], 2) % w
-            arr[i] = np.roll(arr[i], shift, axis=0)
+            idx = (i * 4) % len(K1_cur)
+            bits = KeyUtils.get_bits(K1_cur, idx, 4)
+            shift = int(bits, 2) % w
+            arr[i] = np.roll(arr[i], shift, axis=1)
+
+        # Column rotations (vertical)
         for j in range(w):
-            shift = int(K2[j % len(K2)], 2) % h
+            idx = (j * 4) % len(K2_cur)
+            bits = KeyUtils.get_bits(K2_cur, idx, 4)
+            shift = int(bits, 2) % h
             arr[:, j] = np.roll(arr[:, j], shift, axis=0)
 
-    # Phase 2: Bitplane decomposition
+        round_keys.append((K1_cur, K2_cur))
+        # update keys for next round
+        K1_cur, K2_cur = KeyUtils.update_key(K1_cur, K2_cur)
+
+    # final keys (after rounds) used for bitplane/frame ops
+    final_keys = (K1_cur, K2_cur)
+
+    # Phase: bitplane decomposition
     planes = decompose_bitplanes(Image.fromarray(arr))
 
-    # Phase 3: Frame rotation + shuffling
-    K1_red = KeyUtils.reduce_key(K1)
-    K2_red = KeyUtils.reduce_key(K2)
+    # Frame rotation per plane (use final_keys reduced)
+    K1_red = KeyUtils.reduce_key(final_keys[0])
+    K2_red = KeyUtils.reduce_key(final_keys[1])
     for idx, plane in enumerate(planes):
+        # using single-bit sum modulo 5 (keeps same behaviour but deterministic)
         steps = (int(K1_red[idx % len(K1_red)]) + int(K2_red[idx % len(K2_red)])) % 5
         planes[idx] = rotate_frame(plane, steps)
 
-    # Shuffle planes: reverse order per channel
-    planes[0:8] = planes[0:8][::-1]   # Blue
-    planes[8:16] = planes[8:16][::-1] # Green
-    planes[16:24] = planes[16:24][::-1] # Red
+    # Shuffle planes: reverse order per channel (R, G, B groups)
+    planes[0:8] = planes[0:8][::-1]      # R
+    planes[8:16] = planes[8:16][::-1]    # G
+    planes[16:24] = planes[16:24][::-1]  # B
 
-    # Phase 4: Reconstruction
+    # Reconstruct and save
     encrypted = recompose_bitplanes(planes)
     encrypted.save(output_path)
-    encrypted.show()
-    print("✅ Encrypted image saved as", output_path)
+    print("✅ Encrypted saved as:", output_path)
 
-# ---------- Run directly ----------
+    # Save keys (all round keys + final keys) so decryption is exact
+    KeyUtils.write_keys(keyfile, round_keys, final_keys)
+    print("🔑 Keys saved to:", keyfile)
+
 if __name__ == "__main__":
-    path = input("Enter image path: ").strip()
-    encrypt_image_rbf(path, "encrypted.png")
-
+    img_path = input("Enter image path to encrypt: ").strip()
+    encrypt_image_rbf(img_path, "encrypted.png")

@@ -1,66 +1,59 @@
 # de_rbf.py
-# --------------------------------------------------------
-# Reverses encryption:
-# 1. Reverse bitplane shuffling
-# 2. Reverse frame rotations
-# 3. Rebuild image
-# 4. Reverse Rubik-like scrambling
-
 from PIL import Image
 import numpy as np
-import os, glob
 import KeyUtils
 from en_rbf import decompose_bitplanes, recompose_bitplanes, rotate_frame
 
-def decrypt_image_rbf(input_path, output_path, keyfile="keys_rbf.txt"):
+def decrypt_image_rbf(input_path, output_path, keyfile="keys_rbf.json"):
     # Load encrypted image
     img = Image.open(input_path).convert("RGB")
-    arr = np.array(img)
 
-    # Read keys
-    K1, K2, rounds = KeyUtils.read_keys(keyfile)
-    K1_red = KeyUtils.reduce_key(K1)
-    K2_red = KeyUtils.reduce_key(K2)
+    # Read keys that were saved by encryption
+    rounds, round_keys, final_keys = KeyUtils.read_keys(keyfile)
+    print(f"🔑 Loaded {rounds} round-keys from {keyfile}")
 
-    # Phase 1: Bitplane decomposition
+    # Phase 1: bitplane decomposition
     planes = decompose_bitplanes(img)
 
-    # Reverse shuffle
-    planes[0:8] = planes[0:8][::-1]   # Blue
-    planes[8:16] = planes[8:16][::-1] # Green
-    planes[16:24] = planes[16:24][::-1] # Red
+    # Step: undo plane shuffling (same operation as encryption — reversing twice cancels)
+    planes[0:8] = planes[0:8][::-1]      # R
+    planes[8:16] = planes[8:16][::-1]    # G
+    planes[16:24] = planes[16:24][::-1]  # B
 
-    # Reverse frame rotation
+    # Step: undo frame rotations using final_keys (reverse direction)
+    K1_red = KeyUtils.reduce_key(final_keys[0])
+    K2_red = KeyUtils.reduce_key(final_keys[1])
     for idx, plane in enumerate(planes):
         steps = (int(K1_red[idx % len(K1_red)]) + int(K2_red[idx % len(K2_red)])) % 5
-        planes[idx] = rotate_frame(plane, -steps)  # reverse
+        planes[idx] = rotate_frame(plane, -steps)
 
-    # Reconstruct partially decrypted image
-    arr = np.array(recompose_bitplanes(planes))
-
-    # Reverse Rubik-like scrambling
+    # Recompose to RGB array
+    recomposed = recompose_bitplanes(planes)
+    arr = np.array(recomposed)
     h, w, _ = arr.shape
-    for _ in range(rounds):
-        for j in range(w):
-            shift = int(K2[j % len(K2)], 2) % h
-            arr[:, j] = np.roll(arr[:, j], -shift, axis=0)
-        for i in range(h):
-            shift = int(K1[i % len(K1)], 2) % w
-            arr[i] = np.roll(arr[i], -shift, axis=0)
 
-    # Save final decrypted image
+    # Step: undo Rubik-like scrambling in reverse round order using saved round_keys
+    for r in reversed(range(rounds)):
+        K1_r, K2_r = round_keys[r]
+        # undo column rotations (vertical) in reverse order
+        for j in reversed(range(w)):
+            idx = (j * 4) % len(K2_r)
+            bits = KeyUtils.get_bits(K2_r, idx, 4)
+            shift = int(bits, 2) % h
+            arr[:, j] = np.roll(arr[:, j], -shift, axis=0)
+
+        # undo row rotations (horizontal) in reverse order
+        for i in reversed(range(h)):
+            idx = (i * 4) % len(K1_r)
+            bits = KeyUtils.get_bits(K1_r, idx, 4)
+            shift = int(bits, 2) % w
+            arr[i] = np.roll(arr[i], -shift, axis=1)
+
     decrypted = Image.fromarray(arr)
     decrypted.save(output_path)
-    decrypted.show()
-    print("✅ Decrypted image saved as", output_path)
+    print("✅ Decrypted saved as:", output_path)
+    return output_path
 
-# ---------- Run directly ----------
 if __name__ == "__main__":
-    encrypted_images = glob.glob("*.png")
-    if not encrypted_images:
-        print("No encrypted image found!")
-    else:
-        latest = max(encrypted_images, key=os.path.getmtime)
-        print("🖼 Using latest image:", latest)
-        decrypt_image_rbf(latest, "decrypted.png")
-
+    enc_path = input("Enter encrypted image path: ").strip()
+    decrypt_image_rbf(enc_path, "decrypted.png")
